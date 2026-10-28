@@ -1,0 +1,118 @@
+SIDE-EFFECTS - PART A. THEORY ANSWERS (Questions 1-3)
+
+=====================================================================
+QUESTION 1. What is a side-effect and why not in the composable body?
+=====================================================================
+
+What is a side-effect?
+A side-effect is any change that happens outside of the function itself.
+The function does something more than just "take input and return UI".
+Examples: a network request, writing to a database, writing a log line,
+sending an analytics event, changing a variable of some other object.
+
+Why is the composable body a dangerous place?
+A composable function must only describe the UI from the current state.
+It should be "clean": the same input gives the same UI, and nothing else
+happens. But Compose is free to call the body whenever it wants:
+
+ - Recomposition can run MANY times. Every time a state changes, and
+   during an animation it can happen on every frame (60 times a second).
+ - Recomposition can be SKIPPED, run in a different order, or even run
+   on a different thread.
+ - A composition attempt can be DISCARDED and restarted. For example,
+   the state changes again while Compose is still working, so the
+   half-finished attempt is thrown away and everything starts again.
+   The result of such an attempt is never shown on screen.
+
+So in the example, viewModel.loadProfile() and analytics.log("opened")
+run again and again on every animation frame. That is why the requests
+and log entries multiply. Worse, some of them can come from an attempt
+that was thrown away, so they describe something that never appeared.
+
+The lecture's definition of an "effect" (Key Term), in my own words:
+An effect is a composable function that does not show any UI. Instead it
+runs some code (the side-effect) at the right moment of the composable's
+life: after the composition is finished, and it knows when the composable
+enters and leaves the Composition. So an effect is the safe place for
+side-effects, because Compose controls when it starts, restarts and stops.
+
+Why does data loading belong in the ViewModel (unidirectional data flow)?
+In unidirectional data flow, the state goes DOWN (ViewModel -> UI) and
+the events go UP (UI -> ViewModel). The UI only shows the state and
+reports what the user did. The ViewModel owns the logic and loads the
+data. Reasons:
+ - The ViewModel is not recomposed, so a request is not repeated by
+   recomposition or animation.
+ - The ViewModel survives screen rotation, so the data is not loaded
+   again and again.
+ - The UI becomes simple and easy to test, because it has no logic.
+If the screen must start loading when it appears, we do not write it in
+the body. We use an effect, for example
+LaunchedEffect(userId) { viewModel.loadProfile(userId) }.
+
+
+=====================================================================
+QUESTION 2. Which API fits each need?
+=====================================================================
+
+I want to                                              | API
+-------------------------------------------------------+------------------------
+call a suspend function while the composable is        | LaunchedEffect
+in the Composition                                     |
+launch a coroutine from a callback such as onClick     | rememberCoroutineScope
+read the latest value inside an effect without         | rememberUpdatedState
+restarting it                                          |
+register a listener and remove it afterwards           | DisposableEffect
+publish Compose state to code Compose does not manage  | SideEffect
+turn Flow, LiveData or RxJava into Compose State       | produceState
+recompose less often than the input changes            | derivedStateOf
+turn Compose State into a Flow                         | snapshotFlow
+
+
+=====================================================================
+QUESTION 3. LaunchedEffect(pulseRateMs) with a while loop
+=====================================================================
+
+Code:
+    LaunchedEffect(pulseRateMs) {
+        while (isActive) {
+            delay(pulseRateMs)
+            alpha.animateTo(0f)
+            alpha.animateTo(1f)
+        }
+    }
+
+(1) When does the effect start?
+It starts when the composable enters the Composition (the first time it
+is shown). LaunchedEffect starts a coroutine, and the coroutine runs
+the block. The loop begins with delay(3000), so the first pulse is
+after 3 seconds.
+
+(2) What happens when pulseRateMs changes from 3000 to 1000?
+pulseRateMs is the key of the LaunchedEffect. When a key changes,
+Compose cancels the old coroutine and launches a NEW one with the new
+key. So:
+ - the old loop stops (it is cancelled in delay() or animateTo());
+ - the new loop starts from the beginning and waits 1000 ms, then pulses.
+If the old loop was in the middle of the animation, alpha stays at its
+current value, and the new loop continues from there.
+
+(3) What happens to the while loop when the composable leaves the
+Composition? What does isActive check?
+When the composable leaves the Composition, its coroutine is cancelled
+automatically. delay() and animateTo() are suspend functions that check
+for cancellation, so they throw a CancellationException and the loop
+ends. isActive checks whether the coroutine is still alive:
+ - isActive == true  -> the coroutine is running, the loop goes on;
+ - isActive == false -> the coroutine was cancelled, the loop stops.
+isActive is useful in the loop condition so the loop is not infinite
+after cancellation, especially if the loop has some code that is not a
+suspend call. This is the opposite of a bare while(true), which would
+never stop on its own.
+
+How the lecture's MiniComposition model shows this:
+The model imitates the same rule. When the composition is left (or the
+key changes), the running effect (effect(100)) is cancelled, and it
+does not do any more work after that. This proves that the effect lives
+exactly as long as the composable is in the Composition (or until its
+key changes).
