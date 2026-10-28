@@ -29,11 +29,6 @@ private const val SplashWaitTimeMillis = 2000L
 
 /**
  * Variant 1 (BAD): captures the onTimeout lambda directly.
- *
- * LaunchedEffect(true) never restarts, so its block is created only once,
- * on the first composition. The block keeps the FIRST lambda (v0).
- * Even if the parent passes a newer lambda later, this effect still
- * calls the old one. This is a stale (old) callback.
  */
 @Composable
 fun LandingScreenStale(onTimeout: () -> Unit) {
@@ -46,17 +41,6 @@ fun LandingScreenStale(onTimeout: () -> Unit) {
 
 /**
  * Variant 2 (GOOD): rememberUpdatedState.
- *
- * rememberUpdatedState keeps a State with the latest onTimeout.
- * The effect is not restarted (the key is still true), but when the
- * wait is over it reads currentOnTimeout and gets the NEWEST lambda.
- *
- * Why not LaunchedEffect(onTimeout)?
- * The parent creates a new lambda every 500 ms, so the key would change
- * every 500 ms. Every change cancels the effect and starts it again,
- * so the 2 second wait would restart again and again and onTimeout()
- * would never be called. The wait must not restart, we only need the
- * latest lambda. That is exactly what rememberUpdatedState is for.
  */
 @Composable
 fun LandingScreen(onTimeout: () -> Unit) {
